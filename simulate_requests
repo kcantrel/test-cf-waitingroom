@@ -1,0 +1,194 @@
+#!/bin/bash
+#
+#
+# Set the time to wait between requests
+#        .05 = 20   rps or 1200 rpm
+#        .1  = 10   rps or 600 rpm
+#        .2  =  5   rps or 300 rpm
+#        .3  =  3.3 rps or 200 rpm
+#        1   =  1   rps or 60 rpm
+wait_time=.3
+#
+# Set the number of seconds to send requests.
+let ns=600
+#
+# Set the URL to hit
+if [ -z "$1" ]; then
+  url=https://lonestar.org/tickets/1234/
+else
+  url="$1"
+fi
+
+if [ -z "$url" ]; then
+  echo "Error, you must passs the endpoint to test as the first agrument."
+  exit 1
+fi
+
+
+wrc=waiting_room_cnt.$$
+
+################################################################################
+# The script get the current number of jobs in the queue.
+################################################################################
+get_wr_cnt () {
+(
+  flock -x -w 10 200
+  if [ -s $wrc ]; then
+    cat $wrc
+  else
+    echo "0"
+  fi
+) 200> .lockfile
+}
+
+################################################################################
+# The script subtracts 1 from the current number of jobs in the queue.
+################################################################################
+sub_wr_cnt () {
+# Make sure we exit if flock fails.
+set -e
+(
+  flock -x -w 10 200
+
+  if [ -s $wrc ]; then
+    x=$(cat $wrc)
+  else
+    x=0
+  fi
+  let x-=1
+  echo $x > $wrc
+) 200> .lockfile
+}
+
+################################################################################
+# The script adds 1 to the current number of jobs in the queue.
+################################################################################
+add_wr_cnt () {
+# Make sure we exit if flock fails.
+set -e
+(
+  flock -x -w 10 200
+
+  if [ -s $wrc ]; then
+    x=$(cat $wrc)
+  else
+    x=0
+  fi
+  let x+=1
+  echo $x > $wrc
+) 200> .lockfile
+}
+
+################################################################################
+# This function is used to send a request to the end point. If it get a message
+# that it is in the waiting room, it will keep trying until it gets through.
+# It will output:
+#   '?' - If the curl fails to get a value HTTP status code.
+#   'o' - If it gets a HTTP status code that doesn't equal 200.
+#   '.' - If it gets through the first time.
+#   '[a-Z]' - Repersenting the number of times it tried to get through, in 
+#             10 second intervals. So for example 'c' means it got through
+#             on the 3 attempt (30 seconds).
+################################################################################
+send_request() {
+
+  job=$1
+  output=output.$BASHPID
+  cookie_jar=cookie_jar-$BASHPID
+  letters=(. a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9) 
+  wr_dur=0
+
+  in_waiting_room=true # gaurantee once through the loop.
+  st=$(date '+%s')
+  bwrc=$(get_wr_cnt)
+  while [ $in_waiting_room = "true" ]; do
+    in_waiting_room=false
+    curl -sv -b $cookie_jar -c $cookie_jar $url > $output 2>&1
+    hs=$(egrep '^< HTTP/' $output | awk '{print $3}')
+    if [ -z "$hs" ]; then
+      echo -n "?"
+      awrc=$(get_wr_cnt)
+      echo "$job,1,0,$bwrc,$awrc,$st,$st" >> $results
+      rm -f $output $cookie_jar
+      return
+    elif [ "$hs" -ne 200 ]; then
+      echo -n "o"
+      awrc=$(get_wr_cnt)
+      echo "$job,2,0,$bwrc,$awrc,$st,$st" >> $results
+      rm -f $output $cookie_jar
+      return
+    elif fgrep 'Your estimated wait time is' $output > /dev/null; then
+      in_waiting_room=true
+      if [ $wr_dur -eq 0 ]; then
+        add_wr_cnt
+      fi
+    else # Assuming out of the waiting room
+      let twt=wr_dur*10
+      if [ $wr_dur -gt ${#letters[@]} ]; then
+        echo -n '!'
+      else
+        echo -n "${letters[$wr_dur]}"
+      fi
+      if [ $wr_dur -gt 0 ]; then
+        sub_wr_cnt
+      fi
+    fi
+    if [ $in_waiting_room = "true" ]; then
+      let wr_dur+=1
+      sleep 10
+    fi
+  done
+
+  awrc=$(get_wr_cnt)
+  et=$(date '+%s')
+  let wt=et-st
+  echo "$1,0,$wt,$bwrc,$awrc,$st,$et" >> $results
+
+  rm -f $output $cookie_jar
+}
+
+################################################################################
+# This function send requests to the endpoint.
+# Expected Argurments:
+#   1 = The number of requests
+#   2 = The time to wait between requests
+#   3 = A prefix to make the statistics file unique.
+################################################################################
+send_requests () {
+  nr=$1
+  wait_time=$2
+  pre=$3
+
+  for i in $(seq -f "%05g" 0 $nr); do
+    send_request $pre-$i &
+    sleep $wait_time
+  done
+}
+
+################################################################################
+# Main logic starts here.
+################################################################################
+#
+# Define a file to use to hold statistics.
+results=results
+echo "job,status,wait_time,wr_cnt_before,wr_cnt_after,start_time,end_time" > $results
+
+rps=$(echo "scale=2; 1/$wait_time" | bc -l)
+rpm=$(echo "scale=0; $rps*60" | bc -l | sed -e 's/\.[0-9]*//')
+nr=$(echo "$rps*$ns" | bc -l | sed -e 's/\.[0-9]*//')
+echo "Sending $nr requests to $url at a rate of $rps per second. Or $rpm per minute."
+echo ""
+
+date
+send_requests $nr $wait_time "main"
+echo ""
+date
+
+echo ""
+echo "Now doing 1 request per second for 240 seconds."
+send_requests 600 1 "post"
+echo ""
+echo "Waiting for jobs to finish"
+wait
+echo ""
+date
