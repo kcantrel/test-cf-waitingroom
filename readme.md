@@ -1,16 +1,16 @@
 # Exercise a Cloudfalre Waiting Room
 
 ## Purpose
-This script is used to send requests to a Cloudflare Waiting room. It does this in two phases. The first phase creates a load that is set by the -n, and -s options. The -s option sets the time peroid to sleep between requests. Fractional seconds can be provided (e.g. ".1"). The -n option sets the number of seconds to send requests. The second phase always sends requests at 1 per second, for the number of seconds specified with the -m option.<br>
+This script is used to send requests to a Cloudflare Waiting room. It does this in two phases. The first phase creates a load that is set by the -n, and -s options. The -s option sets the time period to sleep between requests. Fractional seconds can be provided (e.g. ".1"). The -n option sets the number of seconds to send requests. The second phase always sends requests at 1 per second, for the number of seconds specified with the -m option.<br>
 <br>
-The script has two outputs. One is to standard out, where it provide information about the load it about to put on the end point, then emits one of the following characters depending on the results of sending the request:<br>
+The script has two outputs. One is to standard out, where it provides information about the load it is about to put on the end point, then emits one of the following characters depending on the results of sending the request:<br>
 ? - Means that the curl command did not return the HTTP status code. Typically this means the command itself failed.<br>
 o - Means that the curl command did not receive a 200 HTTP status code.<br>
 . - Means the request went straight to the origin server.<br>
 a-zA-Z1-0 - Means the request waited the specified number of seconds, where a=10 seconds, b=20 seconds, c=30 seconds, etc.<br>
-! - Means it waited more than 26+26+10=62*10=620 seconds (i.e. ran out of single characters to repersent the wait time.)<br>
+! - Means it waited more than 26+26+10=62*10=620 seconds (i.e. ran out of single characters to represent the wait time.)<br>
 <br>
-The second output is a file named "results". It contains the following information for each requests:<br>
+The second output is a file with statistics in it. The name of the file is set by the -o option. It contains the following information for each request:<br>
 JobID,Status,Wait_Time,wr_cnt_before,wr_cnt_after,start_time,end_time<br>
 <br>
  Where:<br>
@@ -38,7 +38,7 @@ Here is how sleep_time equates to RPS:
         .3  =  3.3 rps or 200 rpm
         1   =  1   rps or 60 rpm
 ```
-### Exmaple run
+### Example run
 ```
 simulate_requests -s .1 -n 60 -m 60 -o results https://lonestar.org./tickets/1234/
 Sending 600 requests to https://lonestar.org./tickets/1234/ at a rate of 10.00 per second. Or 600 per minute.
