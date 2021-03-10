@@ -1,0 +1,87 @@
+#!/bin/bash
+#
+# This script is used to report the number of request per second an Apache
+# web server as received. It works by just looking at the log file, and
+# simply counting how many request came in at the same time. It does depend
+# on the fields in the log to be in a certain order:
+# hostname clientIP - - [date -TZ] "GET path ...
+# Note that it is assume that the Date will have that "[" adjacent to the 
+# date string.
+#
+# The usage is: get_rps [-s start_time] [-e end_time] [-p path] apache_log_file
+# -s - To specific a time of the first request to start counting. This should be in date(1) format.
+# -e - To specific a time of the last request to include in the counting. This should be in date(1) format.
+# -p - To specific a path to match on.
+################################################################################
+# Set up the defaults.
+end_epoch=$(date '+%s')
+let start_epoch=end_epoch-24*60*60
+pattern="/"
+#
+# Process the arguments.
+while getopts "s:e:p:h" option; do
+  case "${option}" in
+    s) start_epoch=$(date --date="${OPTARG}" +%s)
+    ;;
+    e) end_epoch=$(date --date="${OPTARG}" +%s)
+    ;;
+    p) pattern="${OPTARG}"
+    ;;
+    h)
+      cat <<EOF
+Usage: $(basename $0) [-s start_time] [-e end_time] [-p path] apache_log_file
+Where start_time is the earliest event to include
+      end_Time is the latest event to include
+      path is the URI path to match on.
+EOF
+    exit
+    ;;
+  esac
+done
+
+shift $((OPTIND-1))
+
+if [ -z "$1" -o ! -r "$1" ]; then
+  echo "Error, please provide the Apache log file as the first argument."
+  exit 1
+fi
+
+logfile="$1"
+#
+# Process the log.
+awk -v st=$start_epoch -v et=$end_epoch -v pat=$pattern 'BEGIN {
+  months["Jan"]=1; months["Feb"]=2; months["Mar"]=3; months["Apr"]=4; months["May"]=5; months["Jun"]=6; months["Jul"]=7; months["Aug"]=8; months["Sep"]=9; months["Oct"]=10; months["Nov"]=11; months["Dec"]=12;
+  oldetime=st;
+  rps=0;
+} {
+
+  newtime=substr($5, 2);
+  year=substr(newtime, 8, 4);
+  smonth=substr(newtime, 4, 3);
+  month=months[smonth];
+  day=substr(newtime, 1, 2);
+  hour=substr(newtime, 13, 2);
+  min=substr(newtime, 16, 2);
+  sec=substr(newtime, 19, 2);
+
+  newetime=mktime(year " " month " " day " " hour " " min " " sec);
+  if (newetime >= st && newetime <= et && pat == $8) {
+    if(newetime > oldetime) {
+      oldetime+=1;
+      while (oldetime < newetime) {
+        printf "%s %d\n", oldetime, 0;
+        oldetime += 1;
+      }
+      printf "%s %d\n", newetime, rps;
+      
+      oldetime=newetime;
+      rps=1;
+    } else {
+      rps+=1;
+    }
+  }
+} END {
+  if (rps > 1) {
+    printf "%s %d\n", oldetime, rps
+  }
+}' $logfile

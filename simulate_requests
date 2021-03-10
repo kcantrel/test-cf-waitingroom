@@ -1,44 +1,45 @@
 #!/bin/bash
 #
+# This script is used to put load on a Waiting Room endpoint and then record
+# how long each request is kept in the waiting room.
 #
-# Set the time to wait between requests
-#        .05 = 20   rps or 1200 rpm
-#        .1  = 10   rps or 600 rpm
-#        .2  =  5   rps or 300 rpm
-#        .3  =  3.3 rps or 200 rpm
-#        1   =  1   rps or 60 rpm
-wait_time=.3
+# It outputs to standard output:
+#   ? - Did not receive an HTTP status from the curl command.
+#   o - Did not receive a 200 HTTP status from the origin.
+#   . - A request went straight to the origin.
+#   a-zA-Z1-0 - How long a request stayed in the waiting room. a - 10 seconds, b = 20 seconds, etc.
 #
-# Set the number of seconds to send requests.
-let ns=600
+# It also creates a file called "results" that contains a line for each request that contains:
+# <JobID>,<Status>,<wait_time>,<wr_cnt_before>,<wr_cnt_after>,<start_time>,<end_time>
+# Where:
+#     <JobID> is a fixed string followed by a sequence number
+#     <Status> is 0 if everything went okay. 1 if there was HTTP status code, and 2 if the status code wasn't 200.
+#     <wait_time> is the number of seconds the request was in the waiting room.
+#     <wr_cnt_before - Is the number of requests that are currently looping waiting to make it to the origin when this request started.
+#     <wr_cnt_after - Is the number of requests that are currently looping waiting to make it to the origin when this request made it to the origin.
+#     <start_time> - Is the time, in UNIX epoch format, when the request started.
+#     <end_time> - Is the time, in UNIX epoch format, when the request finished.
 #
-# Set the URL to hit
-if [ -z "$1" ]; then
-  url=https://lonestar.org/tickets/1234/
-else
-  url="$1"
-fi
-
-if [ -z "$url" ]; then
-  echo "Error, you must passs the endpoint to test as the first agrument."
-  exit 1
-fi
-
-
-wrc=waiting_room_cnt.$$
+################################################################################
+#
 
 ################################################################################
 # The script get the current number of jobs in the queue.
 ################################################################################
 get_wr_cnt () {
 (
-  flock -x -w 10 200
+  if flock -x -w 10 200; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
+    exit 1
+  fi
   if [ -s $wrc ]; then
     cat $wrc
   else
     echo "0"
   fi
-) 200> .lockfile
+) 200> $lfc
 }
 
 ################################################################################
@@ -46,9 +47,13 @@ get_wr_cnt () {
 ################################################################################
 sub_wr_cnt () {
 # Make sure we exit if flock fails.
-set -e
 (
-  flock -x -w 10 200
+  if flock -x -w 10 200; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
+    exit 1
+  fi
 
   if [ -s $wrc ]; then
     x=$(cat $wrc)
@@ -57,7 +62,7 @@ set -e
   fi
   let x-=1
   echo $x > $wrc
-) 200> .lockfile
+) 200> $lfc
 }
 
 ################################################################################
@@ -65,9 +70,13 @@ set -e
 ################################################################################
 add_wr_cnt () {
 # Make sure we exit if flock fails.
-set -e
 (
-  flock -x -w 10 200
+  if flock -x -w 10 200; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
+    exit 1
+  fi
 
   if [ -s $wrc ]; then
     x=$(cat $wrc)
@@ -76,7 +85,23 @@ set -e
   fi
   let x+=1
   echo $x > $wrc
-) 200> .lockfile
+) 200> $lfc
+}
+
+################################################################################
+# Update results file
+################################################################################
+update_results () {
+(
+  if flock -x -w 10 201; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
+    exit 1
+  fi
+
+  echo "$*" >> $results
+) 201> $lfr
 }
 
 ################################################################################
@@ -93,8 +118,8 @@ set -e
 send_request() {
 
   job=$1
-  output=output.$BASHPID
-  cookie_jar=cookie_jar-$BASHPID
+  output=output-$job.$BASHPID
+  cookie_jar=cookie_jar-$job.$BASHPID
   letters=(. a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9) 
   wr_dur=0
 
@@ -108,14 +133,14 @@ send_request() {
     if [ -z "$hs" ]; then
       echo -n "?"
       awrc=$(get_wr_cnt)
-      echo "$job,1,0,$bwrc,$awrc,$st,$st" >> $results
-      rm -f $output $cookie_jar
+      update_results "$job,1,0,$bwrc,$awrc,$st,$st"
+      rm -f $cookie_jar # $output  # Keep the output file for diagnoses purposes.
       return
     elif [ "$hs" -ne 200 ]; then
       echo -n "o"
       awrc=$(get_wr_cnt)
-      echo "$job,2,0,$bwrc,$awrc,$st,$st" >> $results
-      rm -f $output $cookie_jar
+      update_results "$job,2,0,$bwrc,$awrc,$st,$st"
+      rm -f $cookie_jar # $output  # Keep the output file for diagnoses purposes.
       return
     elif fgrep 'Your estimated wait time is' $output > /dev/null; then
       in_waiting_room=true
@@ -142,7 +167,7 @@ send_request() {
   awrc=$(get_wr_cnt)
   et=$(date '+%s')
   let wt=et-st
-  echo "$1,0,$wt,$bwrc,$awrc,$st,$et" >> $results
+  update_results "$1,0,$wt,$bwrc,$awrc,$st,$et"
 
   rm -f $output $cookie_jar
 }
@@ -166,16 +191,88 @@ send_requests () {
 }
 
 ################################################################################
+# This function just output the usage statement.
+################################################################################
+usage() {
+    cat <<EOF
+Usage: $(basename $0) -n <num_secs_p1> -m <num_secs_p2> -s <sleep_time_p1> -o <results> URL
+  where:
+    num_secs_p1 - is  the number of seconds to send requests during phase 1.
+    num_secs_p2 - is  the number of seconds to send requests during phase 2, which is fixed at 1 RPS.
+    sleep_time_p1 - is the amount of time to sleep between requests. Fractional time accepted (e.g. .3).
+    results - is the file to store the per request statistics.
+    URL - is the URL of the end point you want to send requests to.
+
+Here is how sleep_time equates to RPS:
+        .05 = 20   rps or 1200 rpm
+        .1  = 10   rps or 600 rpm
+        .2  =  5   rps or 300 rpm
+        .3  =  3.3 rps or 200 rpm
+        1   =  1   rps or 60 rpm
+EOF
+}
+
+################################################################################
 # Main logic starts here.
 ################################################################################
 #
-# Define a file to use to hold statistics.
-results=results
-echo "job,status,wait_time,wr_cnt_before,wr_cnt_after,start_time,end_time" > $results
+# Definitions to temporary files.
+wrc=waiting_room_cnt.$$
+lfc=.lockfiie-cnt
+lfr=.lockfile-results
+trap 'rm -f $wrc $lfc $lfr' 0
+#
+if which curl > /dev/null  2>&1; then
+  :
+else
+  echo "Error, the "curl" command has to be in the command serach path."
+  exit 1
+fi
+#
+# Processs command line arguments.
+while getopts "n:m:s:o:h" option; do
+  case "${option}" in
+    h) usage
+      exit
+      ;;
+    n) nsph1=${OPTARG}
+       ;;
+    m) nsph2=${OPTARG}
+       ;;
+    s) wait_time=${OPTARG}
+       ;;
+    o) results=${OPTARG}
+       ;;
+    *) 
+       echo "unknown option: '${option}'"
+       usage 2>&1
+       exit 1
+       ;;
+  esac
+done
+
+shift $((OPTIND-1))
+url="$1"
+#
+# Check Arguments
+if [ -z "$url" -o -z "$nsph1" -o -z "$nsph2" -o -z "$wait_time" -o -z "$results" ]; then 
+  echo "Error, missing parameter." 2>&1
+  usage 2>&1
+  exit
+fi
+#
+# Truncate the results file with the column headers.
+if echo "job,status,wait_time,wr_cnt_before,wr_cnt_after,start_time,end_time" > $results 2> $lfc; then
+  :
+else
+  echo "Error, failed to write to results file: '$results'."
+  cat $lfc
+  exit 1
+fi
 
 rps=$(echo "scale=2; 1/$wait_time" | bc -l)
 rpm=$(echo "scale=0; $rps*60" | bc -l | sed -e 's/\.[0-9]*//')
-nr=$(echo "$rps*$ns" | bc -l | sed -e 's/\.[0-9]*//')
+nr=$(echo "$rps*$nsph1" | bc -l | sed -e 's/\.[0-9]*//')
 echo "Sending $nr requests to $url at a rate of $rps per second. Or $rpm per minute."
 echo ""
 
@@ -185,8 +282,10 @@ echo ""
 date
 
 echo ""
-echo "Now doing 1 request per second for 240 seconds."
-send_requests 600 1 "post"
+echo "Now doing 1 request per second for $nsph2 seconds."
+send_requests $nsph2 1 "post"
+echo ""
+date
 echo ""
 echo "Waiting for jobs to finish"
 wait
