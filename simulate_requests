@@ -25,83 +25,114 @@
 
 ################################################################################
 # The script get the current number of jobs in the queue.
+# Uses mkdir as a locking mechamism.
 ################################################################################
 get_wr_cnt () {
-(
-  if flock -x -w 10 200; then
-    :
-  else
+  i=0
+  while [ $i -lt 100 -a $i -ge 0 ]; do
+    if mkdir $lfc > /dev/null 2>&1; then
+      if [ -s $wrc ]; then
+        cat $wrc
+      else
+        echo "0"
+      fi
+      i=-1
+    else
+      let i+=1
+      sleep .1
+    fi
+  done
+
+  if [ $i -ge 100 ]; then
     echo "Error, could not get lock on file '$lfc'." 1>&2
     exit 1
   fi
-  if [ -s $wrc ]; then
-    cat $wrc
-  else
-    echo "0"
-  fi
-) 200> $lfc
+
+  rmdir $lfc
 }
 
 ################################################################################
 # The script subtracts 1 from the current number of jobs in the queue.
+# Uses mkdir as a locking mechamism.
 ################################################################################
 sub_wr_cnt () {
-# Make sure we exit if flock fails.
-(
-  if flock -x -w 10 200; then
-    :
-  else
+  i=0
+  while [ $i -lt 100 -a $i -ge 0 ]; do
+    if mkdir $lfc > /dev/null 2>&1; then
+      if [ -s $wrc ]; then
+        x=$(cat $wrc)
+      else
+        x=0
+      fi
+      let x-=1
+      echo $x > $wrc
+      i=-1
+    else
+      let i+=1
+      sleep .1
+    fi
+  done
+
+  if [ $i -ge 100 ]; then
     echo "Error, could not get lock on file '$lfc'." 1>&2
     exit 1
   fi
 
-  if [ -s $wrc ]; then
-    x=$(cat $wrc)
-  else
-    x=0
-  fi
-  let x-=1
-  echo $x > $wrc
-) 200> $lfc
+  rmdir $lfc
 }
 
 ################################################################################
 # The script adds 1 to the current number of jobs in the queue.
+# Uses mkdir as a locking mechamism.
 ################################################################################
 add_wr_cnt () {
-# Make sure we exit if flock fails.
-(
-  if flock -x -w 10 200; then
-    :
-  else
+  i=0
+  while [ $i -lt 100 -a $i -ge 0 ]; do
+    if mkdir $lfc > /dev/null 2>&1; then
+      if [ -s $wrc ]; then
+        x=$(cat $wrc)
+      else
+        x=0
+      fi
+      let x+=1
+      echo $x > $wrc
+      i=-1
+    else
+      let i+=1
+      sleep .1
+    fi
+  done
+
+  if [ $i -ge 100 ]; then
     echo "Error, could not get lock on file '$lfc'." 1>&2
     exit 1
   fi
 
-  if [ -s $wrc ]; then
-    x=$(cat $wrc)
-  else
-    x=0
-  fi
-  let x+=1
-  echo $x > $wrc
-) 200> $lfc
+  rmdir $lfc
 }
 
 ################################################################################
 # Update results file
+# Uses mkdir as a locking mechamism.
 ################################################################################
 update_results () {
-(
-  if flock -x -w 10 201; then
-    :
-  else
-    echo "Error, could not get lock on file '$lfc'." 1>&2
+  i=0
+  while [ $i -lt 100 -a $i -ge 0 ]; do
+    if mkdir $lfr > /dev/null 2>&1; then
+      echo "$*" >> $results
+      i=-1
+    else
+      let i+=1
+      sleep .1
+    fi
+  done
+
+  if [ $i -ge 100 ]; then
+    echo "Error, could not get lock on file '$lfr'." 1>&2
     exit 1
   fi
 
-  echo "$*" >> $results
-) 201> $lfr
+  rmdir $lfr
 }
 
 ################################################################################
@@ -216,11 +247,16 @@ EOF
 # Main logic starts here.
 ################################################################################
 #
-# Definitions to temporary files.
-wrc=waiting_room_cnt.$$
-lfc=.lockfiie-cnt
+# Pointers to temporary files.
+wrc=.waiting_room_cnt.$$
+tmpout=.tmpout.$$
+lfc=.lockfile-cnt
 lfr=.lockfile-results
-trap 'rm -f $wrc $lfc $lfr' 0
+trap 'rm -f $wrc $tmpout; rmdir $lfc $lfr > /dev/null 2>&1' 0
+#
+# Ensure there isn't a left over lockfile from a previously aborted run.
+rmdir $lfc $lfr > /dev/null 2>&1
+# 
 #
 if which curl > /dev/null  2>&1; then
   :
@@ -262,11 +298,11 @@ if [ -z "$url" -o -z "$nsph1" -o -z "$nsph2" -o -z "$wait_time" -o -z "$results"
 fi
 #
 # Truncate the results file with the column headers.
-if echo "job,status,wait_time,wr_cnt_before,wr_cnt_after,start_time,end_time" > $results 2> $lfc; then
+if echo "job,status,wait_time,wr_cnt_before,wr_cnt_after,start_time,end_time" > $results 2> $tmpout; then
   :
 else
   echo "Error, failed to write to results file: '$results'."
-  cat $lfc
+  cat $tmpout
   exit 1
 fi
 
