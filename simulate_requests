@@ -7,7 +7,7 @@
 #   ? - Did not receive an HTTP status from the curl command.
 #   o - Did not receive a 200 HTTP status from the origin.
 #   . - A request went straight to the origin.
-#   a-zA-Z1-0 - How long a request stayed in the waiting room. a - 10 seconds, b = 20 seconds, etc.
+#   a-zA-Z0-9 - How long a request stayed in the waiting room. a - 10 seconds, b = 20 seconds, etc.
 #
 # It also creates a file called "results" that contains a line for each request that contains:
 # <JobID>,<Status>,<wait_time>,<wr_cnt_before>,<wr_cnt_after>,<start_time>,<end_time>

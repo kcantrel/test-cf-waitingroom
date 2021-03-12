@@ -7,7 +7,7 @@ The script has two outputs. One is to standard out, where it provides informatio
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;? - Means that the curl command did not return the HTTP status code. Typically this means the command itself failed.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;o - Means that the curl command did not receive a 200 HTTP status code.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. - Means the request went straight to the origin server.<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;a-zA-Z1-0 - Means the request waited the specified number of seconds, where a=10 seconds, b=20 seconds, c=30 seconds, etc.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;a-zA-Z0-9 - Means the request waited the specified number of seconds, where a=10 seconds, b=20 seconds, c=30 seconds, etc.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;! - Means it waited more than 26+26+10=62*10=620 seconds (i.e. ran out of single characters to represent the wait time.)<br>
 <br>
 The second output is a file with statistics in it. The name of the file is set by the -o option. It contains the following information for each request:<br>
