@@ -218,7 +218,7 @@ send_requests () {
   wait_time=$2
   pre=$3
 
-  for i in $(seq -f "%05g" 0 $nr); do
+  for i in $(seq -f "%05g" 1 $nr); do
     send_request $pre-$i &
     sleep $wait_time
   done
