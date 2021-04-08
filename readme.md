@@ -40,8 +40,8 @@ Here is how sleep_time equates to RPS:
 ```
 ### Example run
 ```
-simulate_requests -s .1 -n 60 -m 60 -o results https://lonestar.org./tickets/1234/
-Sending 600 requests to https://lonestar.org./tickets/1234/ at a rate of 10.00 per second. Or 600 per minute.
+simulate_requests -s .1 -n 60 -m 60 -o results https://example.com/tickets/1234/
+Sending 600 requests to https://example.com/tickets/1234/ at a rate of 10.00 per second. Or 600 per minute.
 
 Wed 10 Mar 2021 10:48:59 AM CST
 ...................................................................................................................a.aa.aa.a..
