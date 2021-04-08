@@ -24,118 +24,86 @@
 #
 ################################################################################
 # The script get the current number of jobs in the queue.
-# Uses mkdir as a locking mechamism.
+# Uses flock as a locking mechamism.
 ################################################################################
 get_wr_cnt () {
-  lockfile=$lfc
-  i=0
-  while [ $i -lt 100 -a $i -ge 0 ]; do
-    if mkdir $lockfile > /dev/null 2>&1; then
-      if [ -s $wrc ]; then
-        cat $wrc
-      else
-        echo "0"
-      fi
-      i=-1
-    else
-      let i+=1
-      sleep .1
-    fi
-  done
-
-  if [ $i -ge 100 ]; then
-    echo "Error, could not get lock on file '$lockfile'." 1>&2
+(
+  if flock -x -w 10 200; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
     exit 1
   fi
 
-  rmdir $lockfile
+  if [ -s $wrc ]; then
+    cat $wrc
+  else
+    echo "0"
+  fi
+) 200> $lfc
 }
 
 ################################################################################
 # The script subtracts 1 from the current number of jobs in the queue.
-# Uses mkdir as a locking mechamism.
+# Uses flock as a locking mechamism.
 ################################################################################
 sub_wr_cnt () {
-  lockfile=$lfc
-  i=0
-  while [ $i -lt 100 -a $i -ge 0 ]; do
-    if mkdir $lockfile > /dev/null 2>&1; then
-      if [ -s $wrc ]; then
-        x=$(cat $wrc)
-      else
-        x=0
-      fi
-      let x-=1
-      echo $x > $wrc
-      i=-1
-    else
-      let i+=1
-      sleep .1
-    fi
-  done
-
-  if [ $i -ge 100 ]; then
-    echo "Error, could not get lock on file '$lockfile'." 1>&2
+(
+  if flock -x -w 10 200; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
     exit 1
   fi
-
-  rmdir $lockfile
+    
+  if [ -s $wrc ]; then
+    x=$(cat $wrc)
+  else
+    x=0
+  fi
+  let x-=1
+  echo $x > $wrc
+) 200> $lfc
 }
 
 ################################################################################
 # The script adds 1 to the current number of jobs in the queue.
-# Uses mkdir as a locking mechamism.
+# Uses flock as a locking mechamism.
 ################################################################################
 add_wr_cnt () {
-  lockfile=$lfc
-  i=0
-  while [ $i -lt 100 -a $i -ge 0 ]; do
-    if mkdir $lockfile > /dev/null 2>&1; then
-      if [ -s $wrc ]; then
-        x=$(cat $wrc)
-      else
-        x=0
-      fi
-      let x+=1
-      echo $x > $wrc
-      i=-1
-    else
-      let i+=1
-      sleep .1
-    fi
-  done
-
-  if [ $i -ge 100 ]; then
-    echo "Error, could not get lock on file '$lockfile'." 1>&2
+(
+  if flock -x -w 10 200; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
     exit 1
   fi
 
-  rmdir $lockfile
+  if [ -s $wrc ]; then
+    x=$(cat $wrc)
+  else
+    x=0
+  fi
+  let x+=1
+  echo $x > $wrc
+) 200> $lfc
 }
 
 ################################################################################
 # Update results file
-# Uses mkdir as a locking mechamism.
+# Uses flock as a locking mechamism.
 ################################################################################
 update_results () {
-  lockfile=$lfr
-  i=0
-  while [ $i -lt 100 -a $i -ge 0 ]; do
-    if mkdir $lockfile > /dev/null 2>&1; then
-      echo "$*" >> $results
-      i=-1
-    else
-      let i+=1
-      sleep .1
-    fi
-  done
-
-  if [ $i -ge 100 ]; then
-    echo "Error, could not get lock on file '$lockfile'." 1>&2
+(
+  if flock -x -w 10 201; then
+    :
+  else
+    echo "Error, could not get lock on file '$lfc'." 1>&2
     exit 1
   fi
 
-  rmdir $lockfile
+  echo "$*" >> $results
+) 201> $lfr
 }
 
 ################################################################################
@@ -255,15 +223,23 @@ wrc=.waiting_room_cnt.$$
 tmpout=.tmpout.$$
 lfc=.lockfile-cnt
 lfr=.lockfile-results
-trap 'rm -f $wrc $tmpout; rmdir $lfc $lfr > /dev/null 2>&1' 0
+trap 'rm -f $wrc $lfc $lfr $tmpout' 0
 #
 # Ensure there aren't any left over lockfiles from a previously aborted run.
-rmdir $lfc $lfr > /dev/null 2>&1
-# Since the old version of the script used files instead of directories, ensure
-# they don't exist either.
-rm -f $wrc $tmpout $lfc $lfr > /dev/null 2>&1
-# 
+rm -f $wrc $tmpout $lfc $lfr
 #
+# Since the old version of the script used directories instead of files, ensure
+# they don't exist either.
+rmdir $lfc $lfr > /dev/null 2>&1
+# 
+# Confirm that some required utilities are accessible.
+if which flock > /dev/null  2>&1; then
+  :
+else
+  echo "Error, the "flock" command has to be in the command serach path."
+  exit 1
+fi
+
 if which curl > /dev/null  2>&1; then
   :
 else
