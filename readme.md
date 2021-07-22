@@ -56,3 +56,13 @@ hgiibjjjjcjhjgbgiggikihhjcihhhhlkkknmjjmmjnnonokklmmklnmonmlonoompollplommpmmpol
 Wed 10 Mar 2021 10:54:22 AM CST
 
 ```
+
+### Docker
+1. Build a Docker container
+```
+docker build . -t test-cf-waitingroom
+```
+2. Run the tool in Docker
+```
+docker run -it --rm -v $PWD:/temp/ test-cf-waitingroom -s .1 -n 60 -m 60 -o /temp/results.csv https://example.com/tickets/1234/
+```
